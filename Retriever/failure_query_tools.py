@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
 from collections import defaultdict
 
+from kb_structure_8d import FailureKB
+from kb_structure_fmea import FMEAFailureKB
+
 def _get_collection(
     persist_dir: Union[str, Path],
     collection_name: str = "all_failure_kb",
@@ -202,6 +205,7 @@ def query_failure_kb_by_chunks(
     system: Optional[Union[str, List[str]]] = None,
     discipline: Optional[Union[str, List[str]]] = None,
     extra_where: Optional[Dict[str, Any]] = None,
+    # top_n_merged = 3
 ) -> Dict[str, Any]:
     """
     chunks input:
@@ -218,6 +222,18 @@ def query_failure_kb_by_chunks(
       "merged": [ {failure_id, score, hits:[...]} , ... ]  # 按 failure_id 聚合
     }
     """
+    ROLE_WEIGHT = {
+        # failure-level broadcast weights
+        "failure_effect": 0.6,
+        "failure_element": 0.6,
+        "failure_mode": 1.00,   # 👈 增加 mode 权重
+
+        # direct cause hit weight
+        "failure_cause": 1.00,
+    }
+
+    failure_kb_FMEA = FMEAFailureKB(persist_dir=persist_dir)
+    failure_kb_8d = FailureKB(persist_dir=persist_dir)
     # 1) Speperate role query
     by_role = {}
     for role, text in entity.items():
@@ -241,8 +257,12 @@ def query_failure_kb_by_chunks(
 
     # 2) Aggregation：through failure ids
     #   Simple method: distance：score = sum(1/(1+dist))
-    agg = defaultdict(lambda: {"failure_id": None, "score": 0.0, "hits": []})
-
+    agg = defaultdict(lambda: {
+        "failure_id": None,
+        "cause_id": None,
+        "score": 0.0,
+        "hits": []
+    })
     for role, r in by_role.items():
         ids0 = r.get("ids", [[]])[0]
         docs0 = r.get("documents", [[]])[0]
@@ -250,29 +270,55 @@ def query_failure_kb_by_chunks(
         dists0 = r.get("distances", [[]])[0]
 
         for rid, doc, meta, dist in zip(ids0, docs0, metas0, dists0):
-            fid = meta.get("failure_id") or meta.get("cause_id")  #
-            if not fid:
-                continue
+            role_hit = meta.get("role")
+            fid = meta.get("failure_id")
+            cid = meta.get("cause_id")
+            base = 1.0 / (1.0 + float(dist))
 
-            a = agg[fid]
-            a["failure_id"] = fid
-            a["score"] += 1.0 / (1.0 + float(dist))
-            a["hits"].append({
-                "role_queried": role,          
-                "matched_id": rid,             # chroma id
-                "matched_role": meta.get("role"),
-                "distance": dist,
-                "text": doc,
-                "metadata": meta,
-            })
+            # ---------- case 1: 命中 failure_cause ----------
+            if role_hit == "failure_cause" and cid:
+                w = ROLE_WEIGHT["failure_cause"]
+                a = agg[cid]
+                a["failure_id"] = fid
+                a["cause_id"] = cid
+                a["score"] += w * base    # 强权重
+                a["hits"].append({
+                    "from_role": role,
+                    "matched_role": role_hit,
+                    "weight": w,
+                    "distance": dist,
+                    "text": doc,
+                })
 
+
+            # ---------- case 2: 命中 failure-level ----------
+            elif role_hit in {"failure_effect","failure_mode","failure_element",}:
+                w = ROLE_WEIGHT.get(role_hit, 0.5)
+                if meta.get("source_type") == "8D": failure_kb = failure_kb_8d
+                else: failure_kb = failure_kb_FMEA
+                cause_ids = failure_kb.store.get(fid, {}).get("cause_ids", [])
+                for c in cause_ids:
+                    cid2 = c["cause_id"]
+                    a = agg[cid2]
+                    a["failure_id"] = fid
+                    a["cause_id"] = cid2
+                    a["score"] += w * base   # 弱权重（很重要）
+                    a["hits"].append({
+                        "from_role": role,
+                        "matched_role": role_hit,
+                        "weight": w,
+                        "distance": dist,
+                        "text": doc,
+                    })
     merged = sorted(agg.values(), key=lambda x: x["score"], reverse=True)
+    # if top_n_merged is not None:
+    #     merged = merged[: top_n_merged]
 
     return {"by_role": by_role, "merged": merged}
 
 
 if  __name__ == "__main__":
-    KB_PATH =  Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\database\KB_motor_drives\failure_kb")
+    KB_PATH =  Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb")
 
 #     res = get_by_metadata(
 #     persist_dir=KB_PATH,
@@ -312,8 +358,8 @@ if  __name__ == "__main__":
     out = query_failure_kb_by_chunks(
         persist_dir=KB_PATH,
         entity=FAILURE_ENTITY,
-        n_results_each=3,
-        # source_type=["new_fmea", "old_fmea"],   # 可选过滤
+        n_results_each=15,
+        # source_type="",   # 可选过滤
         # productPnID=213175,                    # 可选过滤
     )
         # 1) Print Top-k similar results in each failure key
@@ -333,14 +379,23 @@ if  __name__ == "__main__":
 
     # 2) Final aggregated result
     print("\n" + "#" * 80)
-    print("[MERGED RESULT TOP]")
-    for rank, item in enumerate(out["merged"][:10], start=1):
-        print(f"\n[{rank}] failure_id={item['failure_id']} score={item['score']:.4f}")
-        # Show the hit reference
-        for h in item["hits"]:
-            meta = h["metadata"]
-            print(f"   - from={h['role_queried']} dist={float(h['distance']):.4f} "
-                f"matched_id={h['matched_id']} matched_role={h['matched_role']}")
-            print(f"     {h['text']}")
+    print("[MERGED CAUSE RANKING]")
 
-    
+    for rank, item in enumerate(out["merged"][:10], 1):
+        print(
+            f"\n[{rank}] "
+            f"failure_id={item['failure_id']} "
+            f"cause_id={item['cause_id']} "
+            f"score={item['score']:.4f} "
+            # f"direct_hit={item['has_direct_cause_hit']}"
+        )
+
+        for h in item["hits"]:
+            print(
+                f"   - from={h['from_role']} "
+                f"matched_role={h['matched_role']} "
+                f"dist={h['distance']:.4f} "
+                f"weight={h['weight']}"
+            )
+            print(f"     {h['text']}")
+        

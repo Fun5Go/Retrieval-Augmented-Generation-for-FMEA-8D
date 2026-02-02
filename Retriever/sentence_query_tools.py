@@ -316,10 +316,10 @@ if  __name__ == "__main__":
     # result = get_sentences_by_metadata(persist_dir=KB_PATH,limit=5,case_id="8D6649140050R06", source_section="D3", min_faithful_score=90)
     # print(result)
     FAILURE_ENTITY = {
-        "failure_mode": "motor stall after prolonged operation",
-        "failure_element": "motor drive",
-        "failure_effect": "",
-        "failure_cause": "controller software timer logic",
+        "failure_mode": "Relay cannot close",
+        "failure_element": "Motor control",
+        "failure_effect": "Motor cannot start",
+        "failure_cause": "Overvoltage due to motor disconnect",
     }
 
     out = query_sentence_kb_by_chunks(
@@ -327,7 +327,8 @@ if  __name__ == "__main__":
         entity=FAILURE_ENTITY,
         n_results_each=5,
         # source_type=["new_fmea", "old_fmea"],   # optional filter
-        # productPnID=287883,                    # 
+        # productPnID=287883,     
+        failure_id="8D6298110121R01_F"
     )
     for role, res in out["by_role"].items():
         print("\n" + "=" * 80)
