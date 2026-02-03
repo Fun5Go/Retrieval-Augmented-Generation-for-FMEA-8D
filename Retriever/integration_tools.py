@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from failure_query_tools import query_failure_kb_by_chunks
-from sentence_query_tools import query_sentence_kb_by_chunks
+from .failure_query_tools import query_failure_kb_by_chunks
+from .sentence_query_tools import query_sentence_kb_by_chunks
 
 from collections import defaultdict
 from pathlib import Path
@@ -67,7 +67,7 @@ def query_fmea_top_failures_with_sentences(
     sentence_kb_dir,
     entity: dict,
     *,
-    top_n_failures: int = 5,
+    top_n_failures: int = 10,
     n_results_each: int = 5,     # failure kb 每个chunk查多少
     sentence_top_k: int = 3,     # sentence kb 每个chunk top-k
     # ---- failure kb filters ----
@@ -99,33 +99,54 @@ def query_fmea_top_failures_with_sentences(
         discipline=discipline,
         extra_where=extra_where_failure,
     )
-
     merged_failures = (failure_res.get("merged") or [])[:top_n_failures]
     results = []
 
     for f in merged_failures:
         cause_id = f.get("cause_id") 
         failure_id = f.get("failure_id")
+        source_type = f.get("source_type")
         score = float(f.get("score", 0.0))
         hits = f.get("hits") or []
 
         is_8d = (f.get("source_type") == "8D")
 
-        best_by_role = {}
+        role_sum = defaultdict(float)
+        best_by_role = {}  # role -> {text, distance}
+
         for h in hits:
-            role = h.get("role_queried")
+            role = h.get("from_role") or h.get("role_queried")
             text = h.get("text")
             dist = h.get("distance")
-            if not role or not text:
+            w = float(h.get("weight", 1.0))
+
+            if not role or dist is None:
                 continue
-            if role not in best_by_role or (dist is not None and dist < best_by_role[role]["distance"]):
-                best_by_role[role] = {"text": text, "distance": float(dist) if dist is not None else 1e9}
 
+            dist = float(dist)
+            base = 1.0 / (1.0 + dist)
+            contrib = w * base
+            role_sum[role] += contrib
 
+            # 每个 role 保存一条 text：取 distance 最小的那条
+            if text:
+                if role not in best_by_role or dist < best_by_role[role]["distance"]:
+                    best_by_role[role] = {"text": text, "distance": dist}
+
+        # 输出：每个 role 下带 score + text
         out_item = {
-            "cause_id": cause_id, 
+            "cause_id": cause_id,
             "failure_id": failure_id,
+            "source_type":source_type ,
             "score": score,
+            "by_role": {
+                role: {
+                    "score": float(role_sum[role]),
+                    "text": best_by_role.get(role, {}).get("text"),
+                    "distance": best_by_role.get(role, {}).get("distance"),
+                }
+                for role in role_sum.keys()
+            }
         }
 
         # 4) 
@@ -182,6 +203,6 @@ if __name__ == "__main__":
     n_results_each=10,
     sentence_top_k=3,
     product_domain="motor_drives",
-    source_type="8D"
+    # source_type="8D"
 )
     save_json(out, "out.json")

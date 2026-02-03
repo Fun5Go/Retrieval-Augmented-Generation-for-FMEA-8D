@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from Retriever.failure_query_tools import query_failure_kb_by_chunks
 
-GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\fmea_sample_10pct_rephrased.json"
+GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\8d_sample_10pct_rephrased.json"
 PERSIST_DIR = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb"  
 TOP_K = 5
 N_RESULTS_EACH_ROLE = 5  # role-level retrieval size (can tune)
@@ -28,6 +28,12 @@ def get_predicted_cause_ids(result: Dict[str, Any], k: int = TOP_K) -> List[str]
 def precision_at_k(pred: List[str], gt: str, k: int) -> float:
     return (1.0 if gt in pred[:k] else 0.0) / float(k)
 
+def reciprocal_rank(pred: List[str], gt: str) -> float:
+    for i, p in enumerate(pred, start=1):
+        if p == gt:
+            return 1.0 / i
+    return 0.0
+
 def recall_at_k(pred: List[str], gt: str, k: int) -> float:
     # Single ground-truth per query
     return 1.0 if gt in pred[:k] else 0.0
@@ -38,7 +44,7 @@ def build_entity(item: Dict[str, Any]) -> Dict[str, Optional[str]]:
         "failure_mode": item.get("failure_mode"),
         "failure_element": item.get("failure_element"),
         "failure_effect": item.get("failure_effect"),
-        "failure_cause": item.get("failure_cause"),
+        "failure_cause": item.get("root_cause"),
     }
 
 def evaluate(
@@ -74,7 +80,7 @@ def evaluate(
 
         pred_topk = get_predicted_cause_ids(result, k=top_k)
 
-        p = precision_at_k(pred_topk, gt_cause_id, top_k)
+        p = reciprocal_rank(pred_topk, gt_cause_id)
         r = recall_at_k(pred_topk, gt_cause_id, top_k)
 
         precisions.append(p)

@@ -185,65 +185,54 @@ def query_sentence_kb_by_chunks(
     entity: Dict[str, Optional[str]],
     n_results_each: int = 5,
     collection_name: str = "sentences",
-    # meta filters (optional):
-    case_id: Optional[Union[str, List[str]]] = None,
-    failure_id: Optional[Union[str, List[str]]] = None,
-    cause_id: Optional[Union[str, List[str]]] = None,
-    source_section: Optional[Union[str, List[str]]] = None,
-    status: Optional[Union[str, List[str]]] = None,
-    subject: Optional[Union[str, List[str]]] = None,
-    faithful_score: Optional[Union[int, List[int], Dict[str, Any]]] = None,
-    productPnID: Optional[Union[str, List[str]]] = None,
-    product_domain: Optional[Union[str, List[str]]] = None,
-    extra_where: Optional[Dict[str, Any]] = None,
-    # aggregation:
-    group_by: str = "failure_id",  # or "case_id" / "cause_id"
+    # meta filters
+    case_id=None,
+    failure_id=None,
+    cause_id=None,
+    source_section=None,
+    status=None,
+    subject=None,
+    faithful_score=None,
+    productPnID=None,
+    product_domain=None,
+    extra_where=None,
+    # aggregation
+    group_by: str = "failure_id",
 ) -> Dict[str, Any]:
-    """
-    chunks input example:
-      {
-        "symptom": "...",
-        "context": "...",
-        "fix": "..."
-      }
 
-    For each chunk-key, we treat it as a sentence_role filter by default
-    (i.e. query text under sentence_role = chunk-key).
-    If you don't want that behavior, remove sentence_role=role in query loop.
-    """
     QUERY_SECTION_MAP = {
-    "failure_element": ["D2", "D3"],
-    "failure_mode": ["D2", "D3"],
-    "failure_effect": ["D2", "D3"],
-    "failure_cause": ["D3","D4"],
+        "failure_element": ["D2", "D3"],
+        "failure_mode": ["D2", "D3"],
+        "failure_effect": ["D2", "D3"],
+        "failure_cause": ["D3", "D4"],
     }
 
     CHUNK_WEIGHT = {
-    "failure_mode": 1.3,
-    "failure_cause": 1.5,
-    "failure_element": 1.0,
-    "failure_effect": 1.0,
-}
+        "failure_mode": 1.3,
+        "failure_cause": 1.5,
+        "failure_element": 1.0,
+        "failure_effect": 1.0,
+    }
+
     by_role = {}
 
+    # ===============================
+    # Phase 1: query by role
+    # ===============================
     for role, text in entity.items():
         if not text or not str(text).strip():
             continue
-
-        role_source_section = QUERY_SECTION_MAP.get(role)
 
         by_role[role] = query_sentence_kb(
             persist_dir=persist_dir,
             query_text=str(text),
             n_results=n_results_each,
             collection_name=collection_name,
-            # treat chunk key as sentence_role:
             sentence_role=None,
-            # common filters:
             case_id=case_id,
             failure_id=failure_id,
             cause_id=cause_id,
-            source_section=role_source_section,
+            source_section=QUERY_SECTION_MAP.get(role),
             status=status,
             subject=subject,
             min_faithful_score=faithful_score,
@@ -253,10 +242,14 @@ def query_sentence_kb_by_chunks(
             include=["documents", "metadatas", "distances"],
         )
 
-    # aggregate by group_by
-    # agg = defaultdict(lambda: {"group_id": None, "score": 0.0, "hits": []})
-    agg = defaultdict(lambda: {"group_id": None, "score": 0.0,"hits": [],
-    "best_by_chunk": {}   # sentence_id -> best hit
+    # ===============================
+    # Phase 2: collect best sentence contribution
+    # ===============================
+    agg = defaultdict(lambda: {
+        "group_id": None,
+        "score": 0.0,
+        "hits": [],
+        "best_by_chunk": {},   # sentence_id -> best info
     })
 
     for role, r in by_role.items():
@@ -264,6 +257,8 @@ def query_sentence_kb_by_chunks(
         docs0 = r.get("documents", [[]])[0]
         metas0 = r.get("metadatas", [[]])[0]
         dists0 = r.get("distances", [[]])[0]
+
+        weight = CHUNK_WEIGHT.get(role, 1.0)
 
         for rid, doc, meta, dist in zip(ids0, docs0, metas0, dists0):
             gid = meta.get(group_by)
@@ -273,40 +268,45 @@ def query_sentence_kb_by_chunks(
             a = agg[gid]
             a["group_id"] = gid
 
-            w = CHUNK_WEIGHT.get(role, 1.0)
-            s = w / (1.0 + float(dist))
+            score = weight / (1.0 + float(dist))
 
             best = a["best_by_chunk"].get(rid)
-
-            # 只保留这个 sentence 的“最佳贡献”
-            if best is None or s > best["score"]:
+            if best is None or score > best["score"]:
                 a["best_by_chunk"][rid] = {
-                    "score": s,
-                    "sentence_id": rid, 
+                    "sentence_id": rid,
+                    "score": score,
                     "distance": dist,
                     "chunk": role,
+                    "from_chunk": role,
                     "text": doc,
                     "metadata": meta,
-                    "from_chunk": role,
                 }
-        for a in agg.values():
-            seen = set()
-            total = 0.0
-            hits = []
 
-            for info in sorted(a["best_by_chunk"].values(), key=lambda x: x["score"], reverse=True):
-                sid = info["sentence_id"]
-                if sid in seen:
-                    continue
-                seen.add(sid)
+    # ===============================
+    # Phase 3: aggregate score & hits
+    # ===============================
+    for a in agg.values():
+        total = 0.0
+        hits = []
 
-                hits.append(info)
-                total += info["score"]
+        for info in sorted(
+            a["best_by_chunk"].values(),
+            key=lambda x: x["score"],
+            reverse=True,
+        ):
+            hits.append(info)
+            total += info["score"]
 
-            a["hits"] = hits
-            a["score"] = total
+        a["hits"] = hits
+        a["score"] = total
+
     merged = sorted(agg.values(), key=lambda x: x["score"], reverse=True)
-    return {"by_role": by_role, "merged": merged}
+
+    return {
+        "by_role": by_role,
+        "merged": merged,
+    }
+
 
 
 

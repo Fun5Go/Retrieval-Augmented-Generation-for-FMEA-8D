@@ -354,16 +354,15 @@ if  __name__ == "__main__":
 
     FAILURE_ENTITY = {
         "failure_mode": "Relay cannot close",
-        "failure_element": "Motor control",
-        "failure_effect": "Motor cannot start",
+        # "failure_element": "Motor control",
+        # "failure_effect": "Motor cannot start",
         "failure_cause": "Overvoltage due to motor disconnect",
     }
 
     out = query_failure_kb_by_chunks(
         persist_dir=KB_PATH,
         entity=FAILURE_ENTITY,
-        n_results_each=15,
-        source_type="8D",   # 可选过滤
+        n_results_each=15,  # 可选过滤
         # productPnID=213175,                    # 可选过滤
     )
         # 1) Print Top-k similar results in each failure key

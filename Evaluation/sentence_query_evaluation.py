@@ -31,8 +31,11 @@ def get_predicted_failure_ids(result: Dict[str, Any], k: int = TOP_K) -> List[st
     return pred
 
 
-def precision_at_k(pred: List[str], gt: str, k: int) -> float:
-    return (1.0 if gt in pred[:k] else 0.0) / float(k)
+def reciprocal_rank(pred: List[str], gt: str) -> float:
+    for i, p in enumerate(pred, start=1):
+        if p == gt:
+            return 1.0 / i
+    return 0.0
 
 
 def recall_at_k(pred: List[str], gt: str, k: int) -> float:
@@ -137,7 +140,7 @@ def evaluate_sentence(
         pred_groups_topk = get_predicted_groups_with_sentences(result, k=top_k)
         pred_topk = get_predicted_failure_ids_from_groups(pred_groups_topk, k=top_k)
 
-        p = precision_at_k(pred_topk, gt_failure_id, top_k)
+        p = reciprocal_rank(pred_topk, gt_failure_id)
         r = recall_at_k(pred_topk, gt_failure_id, top_k)
 
         precisions.append(p)
