@@ -104,15 +104,12 @@ def query_fmea_top_failures_with_sentences(
     results = []
 
     for f in merged_failures:
+        cause_id = f.get("cause_id") 
         failure_id = f.get("failure_id")
         score = float(f.get("score", 0.0))
         hits = f.get("hits") or []
 
-        is_8d = False
-        if hits:
-            meta0 = hits[0].get("metadata") or {}
-            is_8d = (meta0.get("source_type") == "8D")
-
+        is_8d = (f.get("source_type") == "8D")
 
         best_by_role = {}
         for h in hits:
@@ -124,12 +121,11 @@ def query_fmea_top_failures_with_sentences(
             if role not in best_by_role or (dist is not None and dist < best_by_role[role]["distance"]):
                 best_by_role[role] = {"text": text, "distance": float(dist) if dist is not None else 1e9}
 
-        failure_text = {role: v["text"] for role, v in best_by_role.items()}
 
         out_item = {
+            "cause_id": cause_id, 
             "failure_id": failure_id,
             "score": score,
-            "failure_text": failure_text,  
         }
 
         # 4) 
@@ -183,7 +179,7 @@ if __name__ == "__main__":
     failure_kb_dir=FAILURE_PATH,
     sentence_kb_dir=SENTENCE_PATH,
     entity=FAILURE_ENTITY,
-    n_results_each=5,
+    n_results_each=10,
     sentence_top_k=3,
     product_domain="motor_drives",
     source_type="8D"

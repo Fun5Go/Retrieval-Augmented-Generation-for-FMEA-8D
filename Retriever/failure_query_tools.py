@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
 from collections import defaultdict
 
-from kb_structure_8d import FailureKB
-from kb_structure_fmea import FMEAFailureKB
+from .kb_structure_8d import FailureKB
+from .kb_structure_fmea import FMEAFailureKB
 
 def _get_collection(
     persist_dir: Union[str, Path],
@@ -148,7 +148,7 @@ def get_by_metadata(
     include: Optional[List[str]] = None,
 ):
     """
-    Meta filter：where + get（返回所有匹配项，带分页 offset/limit）
+    Meta filter
     """
     col = _get_collection(persist_dir, collection_name=collection_name)
 
@@ -224,9 +224,9 @@ def query_failure_kb_by_chunks(
     """
     ROLE_WEIGHT = {
         # failure-level broadcast weights
-        "failure_effect": 0.6,
-        "failure_element": 0.6,
-        "failure_mode": 1.00,   # 👈 增加 mode 权重
+        "failure_effect": 0.5,
+        "failure_element": 0.5,
+        "failure_mode": 1.00,   # 
 
         # direct cause hit weight
         "failure_cause": 1.00,
@@ -261,6 +261,7 @@ def query_failure_kb_by_chunks(
         "failure_id": None,
         "cause_id": None,
         "score": 0.0,
+        "source_type": None, 
         "hits": []
     })
     for role, r in by_role.items():
@@ -281,6 +282,7 @@ def query_failure_kb_by_chunks(
                 a = agg[cid]
                 a["failure_id"] = fid
                 a["cause_id"] = cid
+                a["source_type"] = meta.get("source_type") # For sentences query
                 a["score"] += w * base    # 强权重
                 a["hits"].append({
                     "from_role": role,
@@ -303,6 +305,7 @@ def query_failure_kb_by_chunks(
                     a["failure_id"] = fid
                     a["cause_id"] = cid2
                     a["score"] += w * base   # 弱权重（很重要）
+                    a["source_type"] = meta.get("source_type")
                     a["hits"].append({
                         "from_role": role,
                         "matched_role": role_hit,
@@ -329,8 +332,9 @@ if  __name__ == "__main__":
     
 #     res = get_by_ids(
 #     persist_dir=KB_PATH,
-#     ids=["DFMEA6011160042R01__F2::failure_mode", "FMEA6799210115R03__F23_C1"],
+#     ids=["8D6298110111R01_F1_C1",],
 # )
+#     print(res)
 
     # res = query_failure_kb(
     #     persist_dir=KB_PATH,
@@ -339,7 +343,7 @@ if  __name__ == "__main__":
     #     n_results=3,
     # )
 
-    # # Print results
+    # Print results
     # for i, (rid, doc, meta, dist) in enumerate(
     #     zip(res["ids"][0], res["documents"][0], res["metadatas"][0], res["distances"][0]),
     #     start=1
@@ -359,7 +363,7 @@ if  __name__ == "__main__":
         persist_dir=KB_PATH,
         entity=FAILURE_ENTITY,
         n_results_each=15,
-        # source_type="",   # 可选过滤
+        source_type="8D",   # 可选过滤
         # productPnID=213175,                    # 可选过滤
     )
         # 1) Print Top-k similar results in each failure key

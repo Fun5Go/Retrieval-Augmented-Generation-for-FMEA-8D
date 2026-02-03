@@ -312,9 +312,7 @@ def query_sentence_kb_by_chunks(
 
 if  __name__ == "__main__":
     KB_PATH =  Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\sentence_kb")
-    # result = get_sentences_by_ids(persist_dir=KB_PATH, ids=["8D66491000161R01_D4_S004"])
-    # result = get_sentences_by_metadata(persist_dir=KB_PATH,limit=5,case_id="8D6649140050R06", source_section="D3", min_faithful_score=90)
-    # print(result)
+
     FAILURE_ENTITY = {
         "failure_mode": "Relay cannot close",
         "failure_element": "Motor control",
@@ -328,7 +326,6 @@ if  __name__ == "__main__":
         n_results_each=5,
         # source_type=["new_fmea", "old_fmea"],   # optional filter
         # productPnID=287883,     
-        failure_id="8D6298110121R01_F"
     )
     for role, res in out["by_role"].items():
         print("\n" + "=" * 80)
