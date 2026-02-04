@@ -68,7 +68,7 @@ def query_fmea_top_failures_with_sentences(
     entity: dict,
     *,
     top_n_failures: int = 10,
-    n_results_each: int = 5,     # failure kb 每个chunk查多少
+    n_results_each: int = 12,     # failure kb 每个chunk查多少
     sentence_top_k: int = 3,     # sentence kb 每个chunk top-k
     # ---- failure kb filters ----
     source_type=None,
@@ -128,12 +128,12 @@ def query_fmea_top_failures_with_sentences(
             contrib = w * base
             role_sum[role] += contrib
 
-            # 每个 role 保存一条 text：取 distance 最小的那条
+            # each role save the best text
             if text:
                 if role not in best_by_role or dist < best_by_role[role]["distance"]:
                     best_by_role[role] = {"text": text, "distance": dist}
 
-        # 输出：每个 role 下带 score + text
+        # OUTPUT
         out_item = {
             "cause_id": cause_id,
             "failure_id": failure_id,
@@ -191,17 +191,17 @@ if __name__ == "__main__":
     FAILURE_PATH = Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb")
 
     FAILURE_ENTITY = {
-    "failure_mode": "Capacitor short failure",
-    "failure_element": "Power electronics",
-    "failure_effect": "Motor control lost",
-    "failure_cause": "Capacitor mechanically stressed"
+      "failure_mode": "Connection damage from handling",
+      "failure_element": "",
+      "failure_effect": "Motor not running",
+      "failure_cause": "Excess force on connection cables"
     }
     out = query_fmea_top_failures_with_sentences(
     failure_kb_dir=FAILURE_PATH,
     sentence_kb_dir=SENTENCE_PATH,
     entity=FAILURE_ENTITY,
     top_n_failures = 10,
-    n_results_each=10,
+    n_results_each=12,
     sentence_top_k=3,
     product_domain="motor_drives",
     # source_type="8D"

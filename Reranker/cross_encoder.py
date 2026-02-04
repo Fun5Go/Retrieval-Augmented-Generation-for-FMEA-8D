@@ -57,6 +57,13 @@ def rerank_failures(
             retriever_results = retriever_results["results"]
         else:
             raise ValueError("retriever_results dict has no 'results' key")
+        
+    before_rank_map = {}
+    for idx, hit in enumerate(retriever_results, start=1):
+        cid = hit.get("cause_id")  
+        if cid and cid not in before_rank_map:
+            before_rank_map[cid] = idx
+
     query_text = build_query_text(query_entity)
 
     scored = []
@@ -72,16 +79,20 @@ def rerank_failures(
             [(query_text, candidate_text)]
         )[0]
 
+        cause_id = failure.get("cause_id") 
         scored.append({
         "failure_id": failure.get("_failure_id"),
         "cause_id": failure.get("_cause_id"),
                     "source_type": hit.get("source_type"),
                     "rerank_score": float(score),
                     "failure": failure,
+
+                    "before_rank": before_rank_map.get(cause_id),
                 })
 
     scored.sort(key=lambda x: x["rerank_score"], reverse=True)
     return scored[:top_k]
+
 
 def _pick(d, keys, default=None):
     if not isinstance(d, dict):
@@ -101,7 +112,10 @@ def print_reranked(reranked, top_n=3, show_failure_json=False):
         failure_effect = _pick(f, ["failure_effect", "Effect"])
         failure_cause  = _pick(f, ["failure_cause", "Cause"])
 
+        br = r.get("before_rank")
+
         print("=" * 90)
+        print(f"Before rank: {br}")
         print(f"Rank:        {i}")
         print(f"Score:       {r.get('rerank_score'):.4f}")
         print(f"Source:      {r.get('source_type')}")
@@ -124,10 +138,10 @@ def print_reranked(reranked, top_n=3, show_failure_json=False):
 if __name__ == "__main__":
 
     FAILURE_ENTITY = {
-    "failure_mode": "Capacitor short failure",
-    "failure_element": "Power electronics",
-    "failure_effect": "Motor control lost",
-    "failure_cause": "Capacitor mechanically stressed"
+      "failure_mode": "Connection damage from handling",
+      "failure_element": "",
+      "failure_effect": "Motor not running",
+      "failure_cause": "Excess force on connection cables"
         }
     ED_JSON = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb\8d_cause_store.json"
     FMEA_JSON = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb\fmea_cause_store.json"
@@ -140,8 +154,8 @@ if __name__ == "__main__":
     # print(retriever_results)
 
 
-    reranked = rerank_failures(query_entity=FAILURE_ENTITY, retriever_results=retriever_results,fmea_8d_json=ed_store, fmea_json=fmea_store)
+    reranked = rerank_failures(query_entity=FAILURE_ENTITY, retriever_results=retriever_results,fmea_8d_json=ed_store, fmea_json=fmea_store, top_k=10)
     
-    print_reranked(reranked, top_n=3, show_failure_json=False)
+    print_reranked(reranked, top_n=10, show_failure_json=False)
 
 
