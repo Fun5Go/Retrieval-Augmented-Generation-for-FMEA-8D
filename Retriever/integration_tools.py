@@ -191,15 +191,16 @@ if __name__ == "__main__":
     FAILURE_PATH = Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb")
 
     FAILURE_ENTITY = {
-        "failure_mode": "Relay cannot close",
-        "failure_element": "Motor control",
-        "failure_effect": "Motor cannot start",
-        "failure_cause": "Overvoltage due to motor disconnect",
+    "failure_mode": "Capacitor short failure",
+    "failure_element": "Power electronics",
+    "failure_effect": "Motor control lost",
+    "failure_cause": "Capacitor mechanically stressed"
     }
     out = query_fmea_top_failures_with_sentences(
     failure_kb_dir=FAILURE_PATH,
     sentence_kb_dir=SENTENCE_PATH,
     entity=FAILURE_ENTITY,
+    top_n_failures = 10,
     n_results_each=10,
     sentence_top_k=3,
     product_domain="motor_drives",

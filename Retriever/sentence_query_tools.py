@@ -308,22 +308,192 @@ def query_sentence_kb_by_chunks(
     }
 
 
+ROLE_ORDER = ["failure_element", "failure_mode", "failure_effect", "failure_cause"]
 
+def build_concat_query(entity: Dict[str, Optional[str]]) -> str:
+    parts = []
+    for role in ROLE_ORDER:
+        v = entity.get(role)
+        if v and str(v).strip():
+            # Will role prefix
+            parts.append(f"{role.replace('failure_', '').title()}: {str(v).strip()}")
+    return ". ".join(parts)
+
+def query_sentence_kb_by_concat(
+    persist_dir: Union[str, Path],
+    entity: Dict[str, Optional[str]],
+    *,
+    top_k: int = 50,
+    collection_name: str = "sentences",
+    # meta filters
+    case_id=None,
+    failure_id=None,
+    cause_id=None,
+    status=None,
+    subject=None,
+    faithful_score=None,
+    productPnID=None,
+    product_domain=None,
+    extra_where=None,
+    # aggregation
+    group_by: str = "case_id",
+    # scoring
+    use_rank_bonus: bool = True,
+    rank_bonus_weight: float = 0.2,
+    per_group_cap: int = 20,  # Max number of sentences for each case
+) -> Dict[str, Any]:
+
+    query_text = build_concat_query(entity)
+    if not query_text.strip():
+        return {"query_text": query_text, "raw": {}, "merged": []}
+
+    # 1) Query KB by a whole sentence without senction limitation
+    raw = query_sentence_kb(
+        persist_dir=persist_dir,
+        query_text=query_text,
+        n_results=top_k,
+        collection_name=collection_name,
+        sentence_role=None,
+        case_id=case_id,
+        failure_id=failure_id,
+        cause_id=cause_id,
+        source_section=None,  
+        status=status,
+        subject=subject,
+        min_faithful_score=faithful_score,
+        productPnID=productPnID,
+        product_domain=product_domain,
+        extra_where=extra_where,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    ids0 = raw.get("ids", [[]])[0]
+    docs0 = raw.get("documents", [[]])[0]
+    metas0 = raw.get("metadatas", [[]])[0]
+    dists0 = raw.get("distances", [[]])[0]
+
+    # 2) Aggregation by the case id
+    agg = defaultdict(lambda: {
+        "group_id": None,
+        "score": 0.0,
+        "hits": [],
+    })
+
+    # 
+    scored_hits = []
+    for rank, (rid, doc, meta, dist) in enumerate(zip(ids0, docs0, metas0, dists0), start=1):
+        gid = meta.get(group_by)
+        if not gid:
+            continue
+
+        # similarity（main）
+        sim = 1.0 / (1.0 + float(dist))  
+        bonus = (1.0 / rank) if use_rank_bonus else 0.0
+        item_score = sim + rank_bonus_weight * bonus
+
+        scored_hits.append({
+            "sentence_id": rid,
+            "text": doc,
+            "metadata": meta,
+            "distance": dist,
+            "rank": rank,
+            "sim": sim,
+            "item_score": item_score,
+        })
+
+    # 3) 
+    hits_by_gid = defaultdict(list)
+    for h in scored_hits:
+        hits_by_gid[h["metadata"].get(group_by)].append(h)
+
+    for gid, hs in hits_by_gid.items():
+        hs_sorted = sorted(hs, key=lambda x: x["item_score"], reverse=True)
+        hs_take = hs_sorted[:per_group_cap]
+
+        a = agg[gid]
+        a["group_id"] = gid
+        a["hits"] = hs_take
+        a["score"] = sum(x["item_score"] for x in hs_take)
+
+    merged = sorted(agg.values(), key=lambda x: x["score"], reverse=True)
+
+    return {
+        "query_text": query_text,
+        "raw": raw,
+        "merged": merged,
+    }
+
+
+def _pick(meta: Optional[Dict[str, Any]], keys: List[str]) -> Dict[str, Any]:
+    meta = meta or {}
+    return {k: meta.get(k) for k in keys if k in meta}
+
+def print_concat_result_structured(
+    result: Dict[str, Any],
+    *,
+    top_groups: int = 10,
+    top_hits_each: int = 5,
+    show_meta_keys: List[str] = None,
+):
+    if show_meta_keys is None:
+        show_meta_keys = [
+            "case_id", "failure_id", "cause_id",
+            "sentence_role", "source_section",
+            "productPnID", "product_domain",
+        ]
+
+    print("\n" + "=" * 80)
+    print("[CONCAT QUERY]")
+    print(result.get("query_text", "").strip() or "<EMPTY>")
+    print("=" * 80)
+
+    merged = result.get("merged") or []
+    if not merged:
+        print("\n[NO MERGED RESULTS]\n")
+        return
+
+    print(f"\n[MERGED GROUPS TOP {min(top_groups, len(merged))}]")
+    for gi, g in enumerate(merged[:top_groups], start=1):
+        gid = g.get("group_id")
+        gscore = g.get("score", 0.0)
+        hits = g.get("hits") or []
+
+        print(f"\n[{gi}] group_id={gid}  score={gscore:.4f}  hits={len(hits)}")
+        for hi, h in enumerate(hits[:top_hits_each], start=1):
+            sid = h.get("sentence_id")
+            rank = h.get("rank")
+            dist = h.get("distance")
+            sim = h.get("sim")
+            item_score = h.get("item_score")
+            text = (h.get("text") or "").strip().replace("\n", " ")
+            if len(text) > 180:
+                text = text[:180] + "..."
+
+            meta = h.get("metadata") or {}
+            meta_small = _pick(meta, show_meta_keys)
+
+            print(
+                f"   - ({hi}) sentence_id={sid} rank={rank} "
+                f"dist={dist:.4f} sim={sim:.4f} item_score={item_score:.4f}"
+            )
+            if meta_small:
+                print(f"       meta={meta_small}")
+            print(f"       text={text}")
 
 if  __name__ == "__main__":
     KB_PATH =  Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\sentence_kb")
 
     FAILURE_ENTITY = {
-        "failure_mode": "Relay cannot close",
-        "failure_element": "Motor control",
-        "failure_effect": "Motor cannot start",
-        "failure_cause": "Overvoltage due to motor disconnect",
+    "failure_mode": "Regulated DC outputs short",
+    "failure_element": "Power supply",
+    "failure_effect": "",
+    "failure_cause": "Overvoltage backfeeds isolated domain"
     }
 
     out = query_sentence_kb_by_chunks(
         persist_dir=KB_PATH,
         entity=FAILURE_ENTITY,
-        n_results_each=5,
+        n_results_each=25,
         # source_type=["new_fmea", "old_fmea"],   # optional filter
         # productPnID=287883,     
     )
@@ -348,7 +518,6 @@ if  __name__ == "__main__":
                 f"pn={meta.get('productPnID')}"
             )
             print(f"     text={doc}")
-
     # ------------------------------------------------------------------
     # 2) Aggregated (merged) result
     # ------------------------------------------------------------------
@@ -370,3 +539,11 @@ if  __name__ == "__main__":
                 f"sentence_role={h['metadata'].get('sentence_role')}"
             )
             print(f"     {h['text']}")
+    # result = query_sentence_kb_by_concat(
+    #     persist_dir=KB_PATH,
+    #     entity=FAILURE_ENTITY,
+    #     top_k=100
+    #     # source_type=["new_fmea", "old_fmea"],   # optional filter
+    #     # productPnID=287883,     
+    # )
+    # print_concat_result_structured(result, top_groups=10, top_hits_each=3)

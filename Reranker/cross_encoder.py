@@ -83,14 +83,51 @@ def rerank_failures(
     scored.sort(key=lambda x: x["rerank_score"], reverse=True)
     return scored[:top_k]
 
+def _pick(d, keys, default=None):
+    if not isinstance(d, dict):
+        return default
+    for k in keys:
+        if k in d and d[k] not in (None, "", [], {}):
+            return d[k]
+    return default
+
+def print_reranked(reranked, top_n=3, show_failure_json=False):
+    for i, r in enumerate(reranked[:top_n], start=1):
+        f = r.get("failure", {}) or {}
+
+        # try a few common key names; adjust to your schema if needed
+        failure_mode   = _pick(f, ["failure_mode", "Failure Mode", "mode"])
+        failure_element= _pick(f, ["failure_element", "Element", "item"])
+        failure_effect = _pick(f, ["failure_effect", "Effect"])
+        failure_cause  = _pick(f, ["failure_cause", "Cause"])
+
+        print("=" * 90)
+        print(f"Rank:        {i}")
+        print(f"Score:       {r.get('rerank_score'):.4f}")
+        print(f"Source:      {r.get('source_type')}")
+        print(f"Failure ID:  {r.get('failure_id')}")
+        print(f"Cause ID:    {r.get('cause_id')}")
+        print("-" * 90)
+        print(f"Failure mode:    {failure_mode}")
+        print(f"Element:         {failure_element}")
+        print(f"Effect:          {failure_effect}")
+        print(f"Cause:           {failure_cause}")
+
+        if show_failure_json:
+            print("-" * 90)
+            print("Full failure JSON:")
+            print(json.dumps(f, indent=2, ensure_ascii=False))
+
+    print("=" * 90)
+
 
 if __name__ == "__main__":
 
     FAILURE_ENTITY = {
-            "failure_mode": "Relay cannot close",
-            "failure_element": "Motor control",
-            "failure_effect": "Motor cannot start",
-            "failure_cause": "Overvoltage due to motor disconnect",
+    "failure_mode": "Capacitor short failure",
+    "failure_element": "Power electronics",
+    "failure_effect": "Motor control lost",
+    "failure_cause": "Capacitor mechanically stressed"
         }
     ED_JSON = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb\8d_cause_store.json"
     FMEA_JSON = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb\fmea_cause_store.json"
@@ -105,6 +142,6 @@ if __name__ == "__main__":
 
     reranked = rerank_failures(query_entity=FAILURE_ENTITY, retriever_results=retriever_results,fmea_8d_json=ed_store, fmea_json=fmea_store)
     
-    print(reranked[:3])
+    print_reranked(reranked, top_n=3, show_failure_json=False)
 
 

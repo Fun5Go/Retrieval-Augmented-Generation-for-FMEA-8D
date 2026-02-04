@@ -6,13 +6,13 @@ from typing import Dict, Any, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from Retriever.sentence_query_tools import query_sentence_kb_by_chunks  # 改成你的真实 import
+from Retriever.sentence_query_tools import query_sentence_kb_by_chunks, query_sentence_kb_by_concat
 
 
 GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\8d_sample_10pct_rephrased.json"
 PERSIST_DIR = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\sentence_kb"  
 TOP_K = 5
-N_RESULTS_EACH_ROLE = 8
+N_RESULTS_EACH_ROLE = 12
 
 
 def get_predicted_failure_ids(result: Dict[str, Any], k: int = TOP_K) -> List[str]:
@@ -72,18 +72,40 @@ def get_predicted_groups_with_sentences(result: Dict[str, Any], k: int = TOP_K) 
             "failure_id": str(fid),
             "score": row.get("score", 0.0),
             # 只保留必要字段；想全量也可以直接返回 hits
-            "sentences": [
-                {
-                    "sentence_id": h.get("sentence_id"),
-                    "chunk": h.get("chunk") or h.get("from_chunk"),
-                    "distance": h.get("distance"),
-                    "score": h.get("score"),
-                    "text": h.get("text"),
-                    "metadata": h.get("metadata"),
-                }
-                for h in hits
-            ],
+            # "sentences": [
+            #     {
+            #         "sentence_id": h.get("sentence_id"),
+            #         "chunk": h.get("chunk") or h.get("from_chunk"),
+            #         "distance": h.get("distance"),
+            #         "score": h.get("score"),
+            #         "text": h.get("text"),
+            #         "metadata": h.get("metadata"),
+            #     }
+            #     for h in hits
+            # ],
         })
+    return out
+
+def get_predicted_failure_ids_from_concat(result, k):
+    merged = result.get("merged", []) or []
+    out = []
+
+    for row in merged:
+        # 从 hits -> metadata 里读 failure_id
+        hits = row.get("hits") or []
+        fid = None
+        for h in hits:
+            meta = h.get("metadata") or {}
+            fid = meta.get("failure_id")
+            if fid:
+                break
+
+        if fid:
+            out.append(str(fid))
+
+        if len(out) >= k:
+            break
+
     return out
 
 
@@ -134,11 +156,18 @@ def evaluate_sentence(
             product_domain=product_domain,
             group_by="failure_id",
         )
+        # result = query_sentence_kb_by_concat(
+        # persist_dir=persist_dir,
+        # entity=entity,
+        # top_k=60,
+        # )
 
         # pred_topk = get_predicted_failure_ids(result, k=top_k)
 
         pred_groups_topk = get_predicted_groups_with_sentences(result, k=top_k)
         pred_topk = get_predicted_failure_ids_from_groups(pred_groups_topk, k=top_k)
+
+        # pred_topk = get_predicted_failure_ids_from_concat(result, k=TOP_K)
 
         p = reciprocal_rank(pred_topk, gt_failure_id)
         r = recall_at_k(pred_topk, gt_failure_id, top_k)

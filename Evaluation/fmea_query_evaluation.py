@@ -8,10 +8,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from Retriever.failure_query_tools import query_failure_kb_by_chunks
 
-GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\8d_sample_10pct_rephrased.json"
+GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\fmea_sample_10pct_rephrased.json"
 PERSIST_DIR = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb"  
 TOP_K = 5
-N_RESULTS_EACH_ROLE = 5  # role-level retrieval size (can tune)
+N_RESULTS_EACH_ROLE = 10  # role-level retrieval size (can tune)
 
 def get_predicted_cause_ids(result: Dict[str, Any], k: int = TOP_K) -> List[str]:
     """Extract top-k predicted cause_ids from query_failure_kb_by_chunks output."""
@@ -44,7 +44,7 @@ def build_entity(item: Dict[str, Any]) -> Dict[str, Optional[str]]:
         "failure_mode": item.get("failure_mode"),
         "failure_element": item.get("failure_element"),
         "failure_effect": item.get("failure_effect"),
-        "failure_cause": item.get("root_cause"),
+        "failure_cause": item.get("failure_cause"),
     }
 
 def evaluate(
