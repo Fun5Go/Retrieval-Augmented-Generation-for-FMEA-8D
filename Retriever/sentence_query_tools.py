@@ -33,6 +33,8 @@ def _build_sentence_where(
     status=None,
     subject = None,
     min_faithful_score=None,
+    min_year: int | None = None,
+    max_year: int | None = None,
     extra_where=None,
 ):
     def clause(k, v):
@@ -58,6 +60,11 @@ def _build_sentence_where(
         c = clause(k, v)
         if c:
             clauses.append(c)
+            # year range filter (numeric metadata)
+    if min_year is not None:
+        clauses.append({"released_year": {"$gte": int(min_year)}})
+    if max_year is not None:
+        clauses.append({"released_year": {"$lte": int(max_year)}})        
 
     if min_faithful_score is not None:
         clauses.append({"faithful_score": {"$gte": int(min_faithful_score)}})
@@ -90,6 +97,8 @@ def query_sentence_kb(
     status: Optional[Union[str, List[str]]] = None,
     subject: Optional[Union[str, List[str]]] = None,
     min_faithful_score: Optional[int] = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
     extra_where: Optional[Dict[str, Any]] = None,
     include: Optional[List[str]] = None,
 ):
@@ -106,6 +115,8 @@ def query_sentence_kb(
         status=status,
         subject=subject,
         min_faithful_score=min_faithful_score,
+        min_year=min_year,
+        max_year=max_year,
         extra_where=extra_where,
     )
 
@@ -136,6 +147,8 @@ def get_sentences_by_metadata(
     subject: Optional[Union[str, List[str]]] = None,
     min_faithful_score: Optional[int] = None,
     extra_where: Optional[Dict[str, Any]] = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
     include: Optional[List[str]] = None,
 ):
     col = _get_sentence_collection(persist_dir, collection_name)
@@ -150,6 +163,8 @@ def get_sentences_by_metadata(
         source_section=source_section,
         status=status,
         subject = subject,
+        min_year=min_year,
+        max_year=max_year,
         min_faithful_score=min_faithful_score,
         extra_where=extra_where,
     )
@@ -480,6 +495,31 @@ def print_concat_result_structured(
                 print(f"       meta={meta_small}")
             print(f"       text={text}")
 
+def print_get_result_items(res, show_all_metadata=False):
+    ids = res.get("ids", [])
+    docs = res.get("documents", [])
+    metas = res.get("metadatas", [])
+
+    n = min(len(ids), len(docs), len(metas))
+    print(f"Returned items: {n}")
+
+    for i in range(n):
+        m = metas[i] or {}
+        print("=" * 110)
+        print(f"[{i:02d}] id: {ids[i]}")
+        print(f" case id: {m.get('case_id')} | text: {docs[i]}")
+        print(f" role: {m.get('sentence_role')}  | Year:{m.get('released_year')} | subject:{m.get('subject')}"   )
+        # print(f"  productPnID: {m.get('productPnID')} | domain: {m.get('product_domain')} ")
+
+        if show_all_metadata:
+            # print any extra metadata keys that exist
+            extra = {k: v for k, v in m.items() if k not in {
+                "role","source_type","fmea_type","failure_id","cause_id",
+                "productPnID","product_domain","system"
+            }}
+            if extra:
+                print(f"  extra_metadata: {extra}")
+
 if  __name__ == "__main__":
     KB_PATH =  Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\sentence_kb")
 
@@ -489,56 +529,63 @@ if  __name__ == "__main__":
     "failure_effect": "",
     "failure_cause": "Overvoltage backfeeds isolated domain"
     }
-
-    out = query_sentence_kb_by_chunks(
+    result =  get_sentences_by_metadata(
         persist_dir=KB_PATH,
-        entity=FAILURE_ENTITY,
-        n_results_each=25,
-        # source_type=["new_fmea", "old_fmea"],   # optional filter
-        # productPnID=287883,     
+        # sentence_role="other",
+        # case_id="8D6298120149R01",
+        min_year=2020,
+        limit=10,
     )
-    for role, res in out["by_role"].items():
-        print("\n" + "=" * 80)
-        print(f"[ROLE QUERY] {role}")
+    print_get_result_items(result,show_all_metadata=False)
+    # out = query_sentence_kb_by_chunks(
+    #     persist_dir=KB_PATH,
+    #     entity=FAILURE_ENTITY,
+    #     n_results_each=25,
+    #     # source_type=["new_fmea", "old_fmea"],   # optional filter
+    #     # productPnID=287883,     
+    # )
+    # for role, res in out["by_role"].items():
+    #     print("\n" + "=" * 80)
+    #     print(f"[ROLE QUERY] {role}")
 
-        ids0   = res.get("ids", [[]])[0]
-        docs0  = res.get("documents", [[]])[0]
-        metas0 = res.get("metadatas", [[]])[0]
-        dists0 = res.get("distances", [[]])[0]
+    #     ids0   = res.get("ids", [[]])[0]
+    #     docs0  = res.get("documents", [[]])[0]
+    #     metas0 = res.get("metadatas", [[]])[0]
+    #     dists0 = res.get("distances", [[]])[0]
 
-        for i, (rid, doc, meta, dist) in enumerate(
-            zip(ids0, docs0, metas0, dists0), start=1
-        ):
-            print(f"  #{i} id={rid} dist={float(dist):.4f}")
-            print(
-                f"     case_id={meta.get('case_id')} "
-                f"sentence_role={meta.get('sentence_role')} "
-                # f"source={meta.get('source_type')} "
-                f"subject={meta.get('subject')} "
-                f"pn={meta.get('productPnID')}"
-            )
-            print(f"     text={doc}")
-    # ------------------------------------------------------------------
-    # 2) Aggregated (merged) result
-    # ------------------------------------------------------------------
-    print("\n" + "#" * 80)
-    print("[MERGED RESULT TOP]")
+    #     for i, (rid, doc, meta, dist) in enumerate(
+    #         zip(ids0, docs0, metas0, dists0), start=1
+    #     ):
+    #         print(f"  #{i} id={rid} dist={float(dist):.4f}")
+    #         print(
+    #             f"     case_id={meta.get('case_id')} "
+    #             f"sentence_role={meta.get('sentence_role')} "
+    #             # f"source={meta.get('source_type')} "
+    #             f"subject={meta.get('subject')} "
+    #             f"pn={meta.get('productPnID')}"
+    #         )
+    #         print(f"     text={doc}")
+    # # ------------------------------------------------------------------
+    # # 2) Aggregated (merged) result
+    # # ------------------------------------------------------------------
+    # print("\n" + "#" * 80)
+    # print("[MERGED RESULT TOP]")
 
-    for rank, item in enumerate(out["merged"][:10], start=1):
-        print(
-            f"\n[{rank}] group_id={item['group_id']} "
-            f"(group_by=failure_id) score={item['score']:.4f}"
-        )
+    # for rank, item in enumerate(out["merged"][:10], start=1):
+    #     print(
+    #         f"\n[{rank}] group_id={item['group_id']} "
+    #         f"(group_by=failure_id) score={item['score']:.4f}"
+    #     )
 
-        for h in item["hits"]:
-            meta = h["metadata"]
-            print(
-                f"   - from_chunk={h['from_chunk']} "
-                f"dist={float(h['distance']):.4f} "
-                f"sentence_id={h['sentence_id']} "
-                f"sentence_role={h['metadata'].get('sentence_role')}"
-            )
-            print(f"     {h['text']}")
+    #     for h in item["hits"]:
+    #         meta = h["metadata"]
+    #         print(
+    #             f"   - from_chunk={h['from_chunk']} "
+    #             f"dist={float(h['distance']):.4f} "
+    #             f"sentence_id={h['sentence_id']} "
+    #             f"sentence_role={h['metadata'].get('sentence_role')}"
+    #         )
+    #         print(f"     {h['text']}")
     # result = query_sentence_kb_by_concat(
     #     persist_dir=KB_PATH,
     #     entity=FAILURE_ENTITY,
