@@ -90,6 +90,7 @@ def query_fmea_top_failures_with_sentences(
     failure_res = query_failure_kb_by_chunks(
         persist_dir=failure_kb_dir,
         entity=entity,
+        top_k=top_n_failures,
         n_results_each=n_results_each,
         source_type=source_type,
         productPnID=productPnID,
@@ -99,10 +100,12 @@ def query_fmea_top_failures_with_sentences(
         discipline=discipline,
         extra_where=extra_where_failure,
     )
-    merged_failures = (failure_res.get("merged") or [])[:top_n_failures]
+    #Each failure save
+    merged_failures = (failure_res.get("merged_all"))
     results = []
 
     for f in merged_failures:
+        metadata =  f.get("metadata") 
         cause_id = f.get("cause_id") 
         failure_id = f.get("failure_id")
         source_type = f.get("source_type")
@@ -146,7 +149,10 @@ def query_fmea_top_failures_with_sentences(
                     "distance": best_by_role.get(role, {}).get("distance"),
                 }
                 for role in role_sum.keys()
-            }
+            },
+            "productPnID": metadata.get("productPnID"),
+            "confidence": metadata.get("confidence"),
+            "released_year": metadata.get("released_year"),
         }
 
         # 4) 
@@ -191,10 +197,10 @@ if __name__ == "__main__":
     FAILURE_PATH = Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb")
 
     FAILURE_ENTITY = {
-      "failure_mode": "Connection damage from handling",
-      "failure_element": "",
-      "failure_effect": "Motor not running",
-      "failure_cause": "Excess force on connection cables"
+    "failure_mode": "Clamp diode fails",
+    "failure_element": "Output stage",
+    "failure_effect": "",
+    "failure_cause": "Schottky diode thermal runaway"
     }
     out = query_fmea_top_failures_with_sentences(
     failure_kb_dir=FAILURE_PATH,
@@ -204,6 +210,6 @@ if __name__ == "__main__":
     n_results_each=12,
     sentence_top_k=3,
     product_domain="motor_drives",
-    # source_type="8D"
+    # source_type="new_fmea",
 )
     save_json(out, "out.json")

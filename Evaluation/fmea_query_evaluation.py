@@ -7,11 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]  # 指向 RAG 根目录
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from Retriever.failure_query_tools import query_failure_kb_by_chunks
+from Retriever.multiple_retriever import query_failure_kb_multiple_retrieval
 
-GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\fmea_sample_10pct_rephrased.json"
+GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\8d_sample_10pct_rephrased.json"
 PERSIST_DIR = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb"  
-TOP_K = 5
-N_RESULTS_EACH_ROLE = 10  # role-level retrieval size (can tune)
+TOP_K = 10
+N_RESULTS_EACH_ROLE = 25  # role-level retrieval size (can tune)
 
 def get_predicted_cause_ids(result: Dict[str, Any], k: int = TOP_K) -> List[str]:
     """Extract top-k predicted cause_ids from query_failure_kb_by_chunks output."""
@@ -44,7 +45,7 @@ def build_entity(item: Dict[str, Any]) -> Dict[str, Optional[str]]:
         "failure_mode": item.get("failure_mode"),
         "failure_element": item.get("failure_element"),
         "failure_effect": item.get("failure_effect"),
-        "failure_cause": item.get("failure_cause"),
+        "failure_cause": item.get("root_cause"),
     }
 
 def evaluate(
@@ -67,18 +68,42 @@ def evaluate(
 
         entity = build_entity(item)
 
-        result = query_failure_kb_by_chunks(
+
+        # Basic retriever
+        # result = query_failure_kb_by_chunks(
+        #     persist_dir=persist_dir,
+        #     entity=entity,
+        #     n_results_each=n_results_each_role,
+        #     source_type=source_type,
+        #     productPnID=productPnID,
+        #     product_domain=product_domain,
+        #     fmea_type=fmea_type,
+        #     #include=["documents", "metadatas", "distances"],  # your function already sets include; safe if ignored
+        # )
+        # pred_topk = get_predicted_cause_ids(result, k=top_k)
+        # ranked = result.get("merged", [])
+        # final_score = [
+        #     item["score"]
+        #     for item in ranked[:top_k]
+        # ]
+
+        # ==========Multiple retriever==========
+        results = query_failure_kb_multiple_retrieval(
             persist_dir=persist_dir,
             entity=entity,
             n_results_each=n_results_each_role,
-            source_type=source_type,
-            productPnID=productPnID,
-            product_domain=product_domain,
-            fmea_type=fmea_type,
-            #include=["documents", "metadatas", "distances"],  # your function already sets include; safe if ignored
         )
+        ranked = results.get("final_ranked", [])
+        pred_topk = [
+            item["cause_id"]
+            for item in ranked[:top_k]
+        ]
+        final_score = [
+            item["final_score"]
+            for item in ranked[:top_k]
+        ]
 
-        pred_topk = get_predicted_cause_ids(result, k=top_k)
+
 
         p = reciprocal_rank(pred_topk, gt_cause_id)
         r = recall_at_k(pred_topk, gt_cause_id, top_k)
@@ -90,6 +115,7 @@ def evaluate(
             "item_key": key,
             "gt_cause_id": gt_cause_id,
             "pred_topk": pred_topk,
+            "score": final_score,
             "hit_at_k": (gt_cause_id in pred_topk),
             "precision_at_k": p,
             "recall_at_k": r,
@@ -119,7 +145,7 @@ def main():
     print(f"Precision@{TOP_K}: {avg_p:.4f}")
     print(f"Recall@{TOP_K}:    {avg_r:.4f}")
 
-    out_path = Path(f"eval_top{TOP_K}_details.json")
+    out_path = Path(f"eval_top{TOP_K}_details_multiple.json")
     out_path.write_text(json.dumps(details, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Saved details to: {out_path.resolve()}")
 

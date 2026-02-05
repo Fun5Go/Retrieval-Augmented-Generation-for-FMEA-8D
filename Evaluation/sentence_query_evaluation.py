@@ -156,6 +156,7 @@ def evaluate_sentence(
             product_domain=product_domain,
             group_by="failure_id",
         )
+        #========== Failure sentence query
         # result = query_sentence_kb_by_concat(
         # persist_dir=persist_dir,
         # entity=entity,

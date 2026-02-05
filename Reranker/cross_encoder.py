@@ -28,15 +28,11 @@ def load_full_failure(hit, fmea_json, fmea_8d_json):
     if source_type == "8D":
         if cid and cid in fmea_8d_json:
             failure = fmea_8d_json[cid]
-            failure["_cause_id"] = cid
-            failure["_failure_id"] = hit.get("failure_id")
             return failure
 
     elif source_type in {"new_fmea", "old_fmea"}:
         if cid and cid in fmea_json:
             failure = fmea_json[cid]
-            failure["_cause_id"] = cid
-            failure["_failure_id"] = hit.get("failure_id")
             return failure
 
     return None
@@ -81,12 +77,9 @@ def rerank_failures(
 
         cause_id = failure.get("cause_id") 
         scored.append({
-        "failure_id": failure.get("_failure_id"),
-        "cause_id": failure.get("_cause_id"),
+                    "failure": failure,
                     "source_type": hit.get("source_type"),
                     "rerank_score": float(score),
-                    "failure": failure,
-
                     "before_rank": before_rank_map.get(cause_id),
                 })
 
@@ -117,7 +110,7 @@ def print_reranked(reranked, top_n=3, show_failure_json=False):
         print("=" * 90)
         print(f"Before rank: {br}")
         print(f"Rank:        {i}")
-        print(f"Score:       {r.get('rerank_score'):.4f}")
+        print(f"Score:       {r.get('rerank_score')}")
         print(f"Source:      {r.get('source_type')}")
         print(f"Failure ID:  {r.get('failure_id')}")
         print(f"Cause ID:    {r.get('cause_id')}")

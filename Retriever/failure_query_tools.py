@@ -12,6 +12,9 @@ from collections import defaultdict
 from .kb_structure_8d import FailureKB
 from .kb_structure_fmea import FMEAFailureKB
 
+import math
+from collections import OrderedDict
+
 def _get_collection(
     persist_dir: Union[str, Path],
     collection_name: str = "all_failure_kb",
@@ -214,10 +217,44 @@ def get_by_ids(
     return col.get(ids=ids, include=include)
 
 
+def _score_key(s: float, ndigits: int = 6):
+    # same score
+    return round(float(s), ndigits)
+
+def group_and_expand(
+    merged_all,
+    topk_groups: int = 10,
+    score_ndigits: int = 6,
+):
+    groups = OrderedDict()  # (failure_id, score_key) -> group
+
+    for item in merged_all:
+        fid = item.get("failure_id")
+        s = float(item.get("score", 0.0))
+        sk = _score_key(s, score_ndigits)
+        gk = (fid, sk)
+
+        if gk not in groups:
+            groups[gk] = {
+                "group_key": {"failure_id": fid, "score": sk},
+                "failure_id": fid,
+                "group_score": s,          
+                "causes": [],              
+            }
+        groups[gk]["causes"].append(item)
+
+
+        if len(groups) >= topk_groups:
+            break
+
+    grouped_list = list(groups.values())
+    return grouped_list
+
 def query_failure_kb_by_chunks(
     persist_dir,
     entity: Dict[str, Optional[str]],
     n_results_each: int = 5,
+    top_k: int = 10,
     # Meta filter
     source_type: Optional[Union[str, List[str]]] = None,
     productPnID: Optional[Union[str, List[str]]] = None,
@@ -285,6 +322,7 @@ def query_failure_kb_by_chunks(
         "cause_id": None,
         "score": 0.0,
         "source_type": None, 
+        "metadata": None,
         "hits": []
     })
     for role, r in by_role.items():
@@ -298,6 +336,7 @@ def query_failure_kb_by_chunks(
             fid = meta.get("failure_id")
             cid = meta.get("cause_id")
             base = 1.0 / (1.0 + float(dist))
+            
 
             # ---------- case 1: failure_cause ----------
             if role_hit == "failure_cause" and cid:
@@ -314,6 +353,8 @@ def query_failure_kb_by_chunks(
                     "distance": dist,
                     "text": doc,
                 })
+                if a["metadata"] is None:
+                    a["metadata"] = meta
 
 
             # ---------- case 2: failure-level ----------
@@ -336,11 +377,42 @@ def query_failure_kb_by_chunks(
                         "distance": dist,
                         "text": doc,
                     })
-    merged = sorted(agg.values(), key=lambda x: x["score"], reverse=True)
+                    if a["metadata"] is None:
+                        #cause_store
+                        rec = failure_kb.cause_store.get(cid2)
+                        # if rec:
+                        #     a["metadata"] = rec
+                        # else:
+                            # chroma collection
+                        res = failure_kb.collection.get(
+                            ids=[cid2],
+                            include=["metadatas"]
+                        )
+                        metas = res.get("metadatas", [])
+                        if metas:
+                            a["metadata"] = metas[0]
+
+    merged_all= sorted(agg.values(), key=lambda x: x["score"], reverse=True)
     # if top_n_merged is not None:
     #     merged = merged[: top_n_merged]
+    topk_groups = top_k 
 
-    return {"by_role": by_role, "merged": merged}
+    merged_grouped = group_and_expand(
+        merged_all,
+        topk_groups=topk_groups,
+        score_ndigits=6,
+    )
+
+
+    n_causes_in_groups = sum(len(g.get("causes", [])) for g in merged_grouped)
+
+    return {
+        "by_role": by_role,
+        "merged_all": merged_all[:n_causes_in_groups],          # 原始 cause 粒度排序（可选）
+        "merged_grouped": merged_grouped,  # 新的：按 (failure_id, score) 分组并补齐 topk groups
+    }
+
+    # return {"by_role": by_role, "merged": merged}
 
 
 def print_get_result_items(res, show_all_metadata=False):
@@ -356,7 +428,7 @@ def print_get_result_items(res, show_all_metadata=False):
         print("=" * 110)
         print(f"[{i:02d}] id: {ids[i]}")
         print(f"  text: {docs[i]}")
-        print(f"  role: {m.get('role')} | source_type: {m.get('source_type')} | fmea_type: {m.get('fmea_type')} | confidence: {m.get('confidence')} | Year:{m.get('released_year')}" )
+        print(f"  role: {m.get('role')} | source_type: {m.get('source_type')} | fmea_type: {m.get('fmea_type')} | confidence: {m.get('confidence')} | Year:{m.get('released_date')}" )
         print(f"  failure_id: {m.get('failure_id')} | cause_id: {m.get('cause_id')}")
         print(f"  productPnID: {m.get('productPnID')} | domain: {m.get('product_domain')} | system: {m.get('system')}")
 
@@ -372,33 +444,44 @@ def print_get_result_items(res, show_all_metadata=False):
 if  __name__ == "__main__":
     KB_PATH =  Path(r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb")
 
-    res = get_by_metadata(
-    persist_dir=KB_PATH,
-    productPnID=213175,
-    source_type=["8D",],
-    # role= ["failure_cause"],
-    # fmea_type=["system", "design"],
-    # confidence=["high", "low"],
-    min_year=2019,
-    limit=10,
-)
+#     res = get_by_metadata(
+#     persist_dir=KB_PATH,
+#     # productPnID=213175,
+#     # source_type=["8D",],
+#     # role= ["failure_cause"],
+#     # fmea_type=["system", "design"],
+#     # confidence=["high", "low"],
+#     # min_year=2019,
+#     limit=10,
+# )
+#     print(res)
     
 
     
 #     res = get_by_ids(
 #     persist_dir=KB_PATH,
-#     ids=["8D6298110111R01_F1_C1","SFMEA6649140020R03__F3::failure_effect"],
+#     ids=["8D6736140206R02_F1_C2",],
 # )
-    print_get_result_items(res, show_all_metadata=False)
+#     # print_get_result_items(res, show_all_metadata=True)
+#     print(res)
 
-
-    # out = query_failure_kb_by_chunks(
-    #     persist_dir=KB_PATH,
-    #     entity=FAILURE_ENTITY,
-    #     n_results_each=15,  # 
-    #     # productPnID=213175,                    
-    # )
-    #     # 1) Print Top-k similar results in each failure key
+    FAILURE_ENTITY = {
+    "failure_mode": "Clamp diode fails",
+    "failure_element": "Output stage",
+    "failure_effect": "",
+    "failure_cause": "Schottky diode thermal runaway"
+    }
+    out = query_failure_kb_by_chunks(
+        persist_dir=KB_PATH,
+        entity=FAILURE_ENTITY,
+        n_results_each=15,  # 
+        top_k = 10,
+        # productPnID=213175,  
+        source_type="8D",                  
+    )
+    # print(len(out["merged_grouped"]))
+    # print(len(out["merged_all"]))
+        # 1) Print Top-k similar results in each failure key
     # for role, res in out["by_role"].items():
     #     print("\n" + "=" * 80)
     #     print(f"[ROLE QUERY] {role}")
@@ -413,25 +496,36 @@ if  __name__ == "__main__":
     #             f"source={meta.get('source_type')} pn={meta.get('productPnID')}")
     #         print(f"     text={doc}")
 
-    # # 2) Final aggregated result
+    # 2) Final aggregated result
     # print("\n" + "#" * 80)
-    # print("[MERGED CAUSE RANKING]")
+    # print("[MERGED GROUPED CAUSE RANKING]")
 
-    # for rank, item in enumerate(out["merged"][:10], 1):
-    #     print(
-    #         f"\n[{rank}] "
-    #         f"failure_id={item['failure_id']} "
-    #         f"cause_id={item['cause_id']} "
-    #         f"score={item['score']:.4f} "
-    #         # f"direct_hit={item['has_direct_cause_hit']}"
-    #     )
+    for grank, g in enumerate(out["merged_grouped"][:10], 1):
+        print(
+            f"\n[GROUP {grank}] "
+            f"failure_id={g['failure_id']} "
+            f"group_score={g['group_score']:.4f} "
+            f"num_causes={len(g['causes'])}"
+        )
 
-    #     for h in item["hits"]:
-    #         print(
-    #             f"   - from={h['from_role']} "
-    #             f"matched_role={h['matched_role']} "
-    #             f"dist={h['distance']:.4f} "
-    #             f"weight={h['weight']}"
-    #         )
-    #         print(f"     {h['text']}")
-        
+        # 组内的每个 cause
+        for crank, item in enumerate(g["causes"], 1):
+            meta = item["metadata"]
+            print(
+                f"  ({crank}) "
+                f"cause_id={item.get('cause_id')} "
+                f"score={item.get('score', 0.0):.4f}"
+                f"metadata={meta}"
+            )
+
+            # 该 cause 的命中证据
+            for h in item.get("hits", []):
+                print(
+                    f"     - from={h.get('from_role')} "
+                    f"matched_role={h.get('matched_role')} "
+                    f"dist={float(h.get('distance', 0.0)):.4f} "
+                    f"weight={h.get('weight')}"
+                )
+                txt = h.get("text", "")
+                if txt:
+                    print(f"       {txt}")
