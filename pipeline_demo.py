@@ -16,11 +16,11 @@ def load_json(path):
 
 if __name__ == "__main__":
     FAILURE_ENTITY = {
-    "failure_mode": "Digital output overcurrent",
-    "failure_element": "I/O power",
-    "failure_effect": "Outputs disabled temporarily",
-    "failure_cause": "Brake coil load too high"
-    }
+    "failure_mode": "Current trip during run",
+    "failure_element": "Motor drive",
+    "failure_effect": "",
+    "root_cause": "Insufficient margin between SW limit and HW trip"
+        }
     ED_JSON = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb\8d_cause_store.json"
     FMEA_JSON = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb\fmea_cause_store.json"
     RETRIEVER_RESULT = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\out.json"
