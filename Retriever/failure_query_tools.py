@@ -15,6 +15,15 @@ from .kb_structure_fmea import FMEAFailureKB
 import math
 from collections import OrderedDict
 
+
+N_RESULTS_BY_ROLE = {
+    "failure_element": 7,   
+    "failure_effect": 7,    
+    "failure_mode": 20,     
+    "failure_cause": 25,    
+}
+
+
 def _get_collection(
     persist_dir: Union[str, Path],
     collection_name: str = "all_failure_kb",
@@ -299,11 +308,13 @@ def query_failure_kb_by_chunks(
         if not text or not str(text).strip():
             continue
 
+        n_role = N_RESULTS_BY_ROLE.get(role, n_results_each)
+
         by_role[role] = query_failure_kb(
             persist_dir=persist_dir,
             query_text=text,
             role=role,                    
-            n_results=n_results_each,
+            n_results=n_role,
             source_type=source_type,
             productPnID=productPnID,
             product_domain=product_domain,

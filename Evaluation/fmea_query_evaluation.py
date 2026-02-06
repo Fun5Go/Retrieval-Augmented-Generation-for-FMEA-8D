@@ -12,11 +12,11 @@ from Retriever.multiple_retriever import query_failure_kb_multiple_retrieval
 GT_JSON_PATH = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\8d_sample_10pct_rephrased.json"
 PERSIST_DIR = r"C:\Users\FW\Desktop\FMEA_AI\Project_Phase\Codes\RAG\KB_motor_drives\failure_kb"  
 TOP_K = 10
-N_RESULTS_EACH_ROLE = 25  # role-level retrieval size (can tune)
+# N_RESULTS_EACH_ROLE = 25  # role-level retrieval size (can tune)
 
 def get_predicted_cause_ids(result: Dict[str, Any], k: int = TOP_K) -> List[str]:
     """Extract top-k predicted cause_ids from query_failure_kb_by_chunks output."""
-    merged = result.get("merged", []) or []
+    merged = result.get("merged_all", []) or []
     pred = []
     for row in merged:
         cid = row.get("cause_id")
@@ -52,7 +52,7 @@ def evaluate(
     gt_data: Dict[str, Dict[str, Any]],
     persist_dir: str,
     top_k: int = TOP_K,
-    n_results_each_role: int = N_RESULTS_EACH_ROLE,
+    # n_results_each_role: int = N_RESULTS_EACH_ROLE,
     # Optional meta filters if you want to restrict search space:
     source_type: Optional[str] = None,
     productPnID: Optional[str] = None,
@@ -70,38 +70,38 @@ def evaluate(
 
 
         # Basic retriever
-        # result = query_failure_kb_by_chunks(
+        result = query_failure_kb_by_chunks(
+            persist_dir=persist_dir,
+            entity=entity,
+            # n_results_each=n_results_each_role,
+            source_type=source_type,
+            productPnID=productPnID,
+            product_domain=product_domain,
+            fmea_type=fmea_type,
+            #include=["documents", "metadatas", "distances"],  # your function already sets include; safe if ignored
+        )
+        pred_topk = get_predicted_cause_ids(result, k=top_k)
+        ranked = result.get("merged", [])
+        final_score = [
+            item["score"]
+            for item in ranked[:top_k]
+        ]
+
+        # ==========Multiple retriever==========
+        # results = query_failure_kb_multiple_retrieval(
         #     persist_dir=persist_dir,
         #     entity=entity,
         #     n_results_each=n_results_each_role,
-        #     source_type=source_type,
-        #     productPnID=productPnID,
-        #     product_domain=product_domain,
-        #     fmea_type=fmea_type,
-        #     #include=["documents", "metadatas", "distances"],  # your function already sets include; safe if ignored
         # )
-        # pred_topk = get_predicted_cause_ids(result, k=top_k)
-        # ranked = result.get("merged", [])
-        # final_score = [
-        #     item["score"]
+        # ranked = results.get("final_ranked", [])
+        # pred_topk = [
+        #     item["cause_id"]
         #     for item in ranked[:top_k]
         # ]
-
-        # ==========Multiple retriever==========
-        results = query_failure_kb_multiple_retrieval(
-            persist_dir=persist_dir,
-            entity=entity,
-            n_results_each=n_results_each_role,
-        )
-        ranked = results.get("final_ranked", [])
-        pred_topk = [
-            item["cause_id"]
-            for item in ranked[:top_k]
-        ]
-        final_score = [
-            item["final_score"]
-            for item in ranked[:top_k]
-        ]
+        # final_score = [
+        #     item["final_score"]
+        #     for item in ranked[:top_k]
+        # ]
 
 
 
@@ -134,7 +134,7 @@ def main():
         gt_data=gt_data,
         persist_dir=PERSIST_DIR,
         top_k=TOP_K,
-        n_results_each_role=N_RESULTS_EACH_ROLE,
+        # n_results_each_role=N_RESULTS_EACH_ROLE,
         # If you want filters, set them here; otherwise leave None:
         # source_type="new_fmea",
         # product_domain="motor drive",
